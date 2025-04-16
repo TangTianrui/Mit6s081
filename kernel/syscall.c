@@ -34,7 +34,7 @@ fetchstr(uint64 addr, char *buf, int max)
 static uint64
 argraw(int n)
 {
-  struct proc *p = myproc();
+  struct proc *p = myproc();//获取进程状态段
   switch (n) {
   case 0:
     return p->trapframe->a0;
@@ -104,6 +104,12 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
+extern uint64 sys_trace(void);//声明一个可以被外部引用的系统调用函数->这里为什么输入都是void，输出都是uint64呢？
+//1个原因是为了保证在下面的函数指针数组中都是相同的格式，可以被储存
+
+//定义每个系统调用编号对应的系统调用名
+static char *syscall_name[]={"fork","exit","wait","pipe","read","kill","exec","fstat","chdir","dup","getpid",
+                  "sbrk","sleep","uptime","open","write","mknod","unlink","link","mkdir","close","trace",};
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -127,17 +133,22 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_trace]   sys_trace,//在系统调用函数指针数组中声明trace函数
 };
 
 void
-syscall(void)
+syscall(void)//系统调用函数
 {
-  int num;
-  struct proc *p = myproc();
+  int num;//根据后续代码可以推断这是系统调用的编号,应当拿num和mask进行处理并判断是否是trace的系统调用
+  struct proc *p = myproc();//proc是进程状态片段;
 
   num = p->trapframe->a7;
-  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
-    p->trapframe->a0 = syscalls[num]();
+  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {//这里num是用来标识具体的系统调用的索引的;
+    p->trapframe->a0 = syscalls[num]();//将对应的系统调用函数的返回值加载到申请系统调用进程的trapframe中;
+    if((p->trace_mask>>num)&1){//==1,>0
+      printf("%d: syscall %s -> %d\n",p->pid,syscall_name[num-1],p->trapframe->a0);
+    }//3: syscall read -> 966
+    
   } else {
     printf("%d %s: unknown sys call %d\n",
             p->pid, p->name, num);

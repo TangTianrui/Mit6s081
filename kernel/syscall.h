@@ -20,3 +20,5 @@
 #define SYS_link   19
 #define SYS_mkdir  20
 #define SYS_close  21
+#define SYS_trace  22//定义新的系统调用编号
+//mask 是最大2^22-2的值，如果mask==2^21,说明trace close系统调用；

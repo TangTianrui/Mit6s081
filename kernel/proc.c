@@ -17,13 +17,13 @@ struct spinlock pid_lock;
 
 extern void forkret(void);
 static void wakeup1(struct proc *chan);
-static void freeproc(struct proc *p);
+static void freeproc(struct proc *p);//清除进程
 
 extern char trampoline[]; // trampoline.S
 
 // initialize the proc table at boot time.
 void
-procinit(void)
+procinit(void)//进程初始化
 {
   struct proc *p;
   
@@ -57,7 +57,7 @@ cpuid()
 // Return this CPU's cpu struct.
 // Interrupts must be disabled.
 struct cpu*
-mycpu(void) {
+mycpu(void) {//获取当前cpu的信息
   int id = cpuid();
   struct cpu *c = &cpus[id];
   return c;
@@ -65,7 +65,7 @@ mycpu(void) {
 
 // Return the current struct proc *, or zero if none.
 struct proc*
-myproc(void) {
+myproc(void) {//从cpu信息中获取当前进程的状态段
   push_off();
   struct cpu *c = mycpu();
   struct proc *p = c->proc;
@@ -90,7 +90,7 @@ allocpid() {
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
 static struct proc*
-allocproc(void)
+allocproc(void)//生成/分配新线程；
 {
   struct proc *p;
 
@@ -149,6 +149,7 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->trace_mask=0;//tarce_mask置为空,不对任何系统调用进行追踪
   p->state = UNUSED;
 }
 
@@ -259,45 +260,47 @@ int
 fork(void)
 {
   int i, pid;
-  struct proc *np;
-  struct proc *p = myproc();
+  struct proc *np;//新进程的指针
+  struct proc *p = myproc();//父进程
 
   // Allocate process.
-  if((np = allocproc()) == 0){
+  if((np = allocproc()) == 0){//创建新进程
     return -1;
   }
 
   // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){//复制页表
     freeproc(np);
     release(&np->lock);
     return -1;
   }
   np->sz = p->sz;
 
-  np->parent = p;
+  np->parent = p;//父进程和子进程的派生关系
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
   // Cause fork to return 0 in the child.
-  np->trapframe->a0 = 0;
+  np->trapframe->a0 = 0;//子进程的返回值为0
 
   // increment reference counts on open file descriptors.
-  for(i = 0; i < NOFILE; i++)
+  for(i = 0; i < NOFILE; i++)//复制已经打开的文件描述符
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
+  np->trace_mask=p->trace_mask;//复制追踪的系统调用编号
+
   pid = np->pid;
 
-  np->state = RUNNABLE;
+  np->state = RUNNABLE;//状态就绪
 
   release(&np->lock);
 
-  return pid;
+  return pid;//返回子进程的进程编号
 }
 
 // Pass p's abandoned children to init.
@@ -339,7 +342,7 @@ exit(int status)
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
-    if(p->ofile[fd]){
+    if(p->ofile[fd]){//关闭文件系统
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;

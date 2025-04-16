@@ -23,6 +23,7 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int trace(int);//定义的trace系统调用,int输入为追踪的系统调用的掩码
 
 // ulib.c
 int stat(const char*, struct stat*);

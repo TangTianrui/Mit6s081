@@ -80,6 +80,7 @@ struct trapframe {
   /* 280 */ uint64 t6;
 };
 
+//进程的五个状态：已分配、等待I/O中（阻塞态）、就绪态、运行态、退出
 enum procstate { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
@@ -103,4 +104,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  //用于表示该进程和子进程trace的mask
+  int trace_mask;
 };

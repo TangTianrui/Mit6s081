@@ -95,3 +95,16 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+//它通过将参数保存到proc结构体（请参见kernel/proc.h）里的一个新变量中来实现新的系统调用。
+//从用户空间检索系统调用参数的函数在kernel/syscall.c中
+uint64
+sys_trace(void){
+  int mask;
+  if(argint(0, &mask) < 0)//syscall提供的传递int的函数；
+    return -1;
+  //printf("sys_trace: mask is %d\n",mask);
+  struct proc *p=myproc();//获得当前进程的状态段；
+  p->trace_mask=mask;//置trace掩码,在syscall时进程会检查当前的系统调用是否本进程在trace
+  return 0;
+} 
