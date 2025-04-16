@@ -54,6 +54,7 @@ void sub_pid(int r_pipe[2]){
             }
             close(sub_pipe[1]);
             close(r_pipe[0]);
+            wait(0);
             exit(0);            
         }
 }
