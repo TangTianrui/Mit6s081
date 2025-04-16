@@ -104,12 +104,13 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
-extern uint64 sys_trace(void);//声明一个可以被外部引用的系统调用函数->这里为什么输入都是void，输出都是uint64呢？
+extern uint64 sys_trace(void);//声明一个可以被外部引用的系统调用函数->这里为什么输入都是void，输出都是uint64呢?
+extern uint64 sys_sysinfo(void);//声明获取系统信息的系统调用函数
 //1个原因是为了保证在下面的函数指针数组中都是相同的格式，可以被储存
 
 //定义每个系统调用编号对应的系统调用名
 static char *syscall_name[]={"fork","exit","wait","pipe","read","kill","exec","fstat","chdir","dup","getpid",
-                  "sbrk","sleep","uptime","open","write","mknod","unlink","link","mkdir","close","trace",};
+                  "sbrk","sleep","uptime","open","write","mknod","unlink","link","mkdir","close","trace","sysinfo",};
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -133,7 +134,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
-[SYS_trace]   sys_trace,//在系统调用函数指针数组中声明trace函数
+[SYS_trace]   sys_trace,//在系统调用函数指针数组中绑定trace函数
+[SYS_sysinfo] sys_sysinfo,//系统调用函数指针数组中绑定sysinfo函数
 };
 
 void

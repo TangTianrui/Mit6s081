@@ -8,12 +8,12 @@
 
 struct cpu cpus[NCPU];
 
-struct proc proc[NPROC];
+struct proc proc[NPROC];//像是进程数组
 
-struct proc *initproc;
+struct proc *initproc;//init进程
 
 int nextpid = 1;
-struct spinlock pid_lock;
+struct spinlock pid_lock;//操作进程的锁
 
 extern void forkret(void);
 static void wakeup1(struct proc *chan);
@@ -27,7 +27,7 @@ procinit(void)//进程初始化
 {
   struct proc *p;
   
-  initlock(&pid_lock, "nextpid");
+  initlock(&pid_lock, "nextpid");//初始化锁
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
 
@@ -78,8 +78,8 @@ allocpid() {
   int pid;
   
   acquire(&pid_lock);
-  pid = nextpid;
-  nextpid = nextpid + 1;
+  pid = nextpid;//获取待分配的进程id,栈的形式
+  nextpid = nextpid + 1;//待分配的进程id出栈；
   release(&pid_lock);
 
   return pid;
@@ -695,4 +695,20 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+uint64
+procnum(void){
+  //通过遍历进程数组,判断状态,记录进程数量
+  uint64 nproc=0;
+  struct proc *p;
+
+  for(p = proc; p < &proc[NPROC]; ++p) {
+    acquire(&p->lock);
+    if(p->state != UNUSED){
+      ++nproc;
+    }
+    release(&p->lock);
+  }
+  return nproc;
 }

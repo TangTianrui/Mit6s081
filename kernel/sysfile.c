@@ -15,7 +15,10 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "sysinfo.h"
 
+uint64 kfreemem(void);
+uint64 procnum(void);
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -110,7 +113,7 @@ sys_fstat(void)
   struct file *f;
   uint64 st; // user pointer to struct stat
 
-  if(argfd(0, 0, &f) < 0 || argaddr(1, &st) < 0)
+  if(argfd(0, 0, &f) < 0 || argaddr(1, &st) < 0)//argaddr()应该将传入的第i个参数绑定到地址中去
     return -1;
   return filestat(f, st);
 }
@@ -462,9 +465,9 @@ sys_pipe(void)
   int fd0, fd1;
   struct proc *p = myproc();
 
-  if(argaddr(0, &fdarray) < 0)
+  if(argaddr(0, &fdarray) < 0)//获取用户空间数组的起始地址
     return -1;
-  if(pipealloc(&rf, &wf) < 0)
+  if(pipealloc(&rf, &wf) < 0)//创建并分配管道的文件描述符
     return -1;
   fd0 = -1;
   if((fd0 = fdalloc(rf)) < 0 || (fd1 = fdalloc(wf)) < 0){
@@ -484,3 +487,21 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64
+sys_sysinfo(void){
+  uint64 _si;//64位非负整数表示8字节的sysinfo对象地址
+  struct sysinfo si; 
+  struct proc *p =myproc();
+  if(argaddr(0,&_si)<0){//获取用户空间传入的地址
+    return -1;
+  }
+  si.freemem=kfreemem();//获取空闲内存空间的大小
+  si.nproc=procnum();//获取进程数量
+  printf("sys_sysinfo: freemem=%d, nproc=%d\n",si.freemem,si.nproc);
+  if(copyout(p->pagetable,_si,(char*)&si,sizeof(struct sysinfo))<0){//将kernel获取的sysinfo信息回传到用户空间；
+    return -1;  
+  }
+  return 0;
+}
+

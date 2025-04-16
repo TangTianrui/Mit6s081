@@ -1,5 +1,6 @@
 struct stat;
 struct rtcdate;
+struct sysinfo;//kernel/sysinfo.h
 
 // system calls
 int fork(void);
@@ -24,6 +25,7 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int trace(int);//定义的trace系统调用,int输入为追踪的系统调用的掩码
+int sysinfo(struct sysinfo *);//声明用户空间用于获取系统信息的函数
 
 // ulib.c
 int stat(const char*, struct stat*);

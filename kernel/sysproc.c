@@ -107,4 +107,4 @@ sys_trace(void){
   struct proc *p=myproc();//获得当前进程的状态段；
   p->trace_mask=mask;//置trace掩码,在syscall时进程会检查当前的系统调用是否本进程在trace
   return 0;
-} 
+}
