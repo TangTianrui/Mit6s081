@@ -68,24 +68,25 @@ kvminithart()
 //   21..29 -- 9 bits of level-1 index.
 //   12..20 -- 9 bits of level-0 index.
 //    0..11 -- 12 bits of byte offset within the page.
+//根据虚拟地址va和页表pagetable获取对应的pte条目；
 pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
-  if(va >= MAXVA)
+  if(va >= MAXVA)//虚拟地址超出范围，寻址失败；
     panic("walk");
 
-  for(int level = 2; level > 0; level--) {
-    pte_t *pte = &pagetable[PX(level, va)];
-    if(*pte & PTE_V) {
-      pagetable = (pagetable_t)PTE2PA(*pte);
-    } else {
-      if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
+  for(int level = 2; level > 0; level--) {//三级页表，这里寻两次
+    pte_t *pte = &pagetable[PX(level, va)];//获取pte条目
+    if(*pte & PTE_V) {//如果虚拟地址获取到了pte条目
+      pagetable = (pagetable_t)PTE2PA(*pte);//pte条目转化为下一级的物理地址
+    } else {//如果不存在该条目，则根据alloc标志位判断是否分配物理内存创建新的页表
+      if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)//如果alloc标志位为0或者分配页表的物理内存出错，返回0；
         return 0;
-      memset(pagetable, 0, PGSIZE);
-      *pte = PA2PTE(pagetable) | PTE_V;
+      memset(pagetable, 0, PGSIZE);//初始化页表空间；
+      *pte = PA2PTE(pagetable) | PTE_V;//基于物理地址，构造新建的pte条目；
     }
   }
-  return &pagetable[PX(0, va)];
+  return &pagetable[PX(0, va)];//根据虚拟地址和检索的第三级页表起点,返回第三级页表寻址到的pte条目,既为目标PPN
 }
 
 // Look up a virtual address, return the physical address,
@@ -97,17 +98,17 @@ walkaddr(pagetable_t pagetable, uint64 va)
   pte_t *pte;
   uint64 pa;
 
-  if(va >= MAXVA)
+  if(va >= MAXVA)//分配的虚拟地址超过用户空间的虚拟地址
     return 0;
 
-  pte = walk(pagetable, va, 0);
+  pte = walk(pagetable, va, 0);//查询虚拟地址对应的三级pte
   if(pte == 0)
     return 0;
   if((*pte & PTE_V) == 0)
     return 0;
   if((*pte & PTE_U) == 0)
     return 0;
-  pa = PTE2PA(*pte);
+  pa = PTE2PA(*pte);//三级pte指向的地址即为虚拟地址对应的物理地址
   return pa;
 }
 
@@ -275,18 +276,18 @@ void
 freewalk(pagetable_t pagetable)
 {
   // there are 2^9 = 512 PTEs in a page table.
-  for(int i = 0; i < 512; i++){
-    pte_t pte = pagetable[i];
-    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
+  for(int i = 0; i < 512; i++){//遍历页表的所有pte条目
+    pte_t pte = pagetable[i];//根据索引得到第i个pte条目
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){//pte条目valid,没有读/写/执行权限->表示指向下一级页表，而不是指向虚拟地址对应的物理地址。
       // this PTE points to a lower-level page table.
-      uint64 child = PTE2PA(pte);
-      freewalk((pagetable_t)child);
-      pagetable[i] = 0;
-    } else if(pte & PTE_V){
+      uint64 child = PTE2PA(pte);//pte条目转化为pagtable；
+      freewalk((pagetable_t)child);//递归遍历该pagetable的每一个pte条目
+      pagetable[i] = 0;//将该pte条目置为0；
+    } else if(pte & PTE_V){//pte条目有效，但是有权限，既有用户在使用;
       panic("freewalk: leaf");
-    }
+    }//如果本身为0则跳过
   }
-  kfree((void*)pagetable);
+  kfree((void*)pagetable);//因为一个页表有512个pte条目,每一个条目8bytes,共4096bytes,正好占一页物理内存；
 }
 
 // Free user memory pages,
@@ -351,6 +352,8 @@ uvmclear(pagetable_t pagetable, uint64 va)
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
+//内核向用户态传递参数，dstva是通过argvaddr()获取的实参地址，src是内核想要传递的内存起始指针，len是传递的字节数；
+//pagetable应该就是当前进程的根页表；
 int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
@@ -439,4 +442,27 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+const static char *pre[]={"..",".. ..",".. .. .."};//代表层级的前缀字符串输出；
+
+//深度优先打印页表
+void vmprint(pagetable_t pagetable,uint64 pg_dep){
+  //printf("vmprint\n");
+  //if(pg_dep>2) return;//pte只有3层页表
+  if(pg_dep==0){
+    printf("page table %p\n",pagetable);
+  }//第一次调用，打印提示词；
+  
+  for(int i=0;i<512;++i){
+    pte_t pte=pagetable[i];//遍历所有页表
+    if(pte&PTE_V){//pte条目有效
+      uint64 child=PTE2PA(pte);//将pte条目转化为下一级的页表
+      printf("%s%d: pte %p pa %p\n",pre[pg_dep],i,pte,child);//打印输出
+      if((pte&(PTE_R|PTE_W|PTE_X))==0){//说明没有到最后一级页表
+        vmprint((pagetable_t)child,1+pg_dep);//递归调用；
+      }
+    }
+  }
+  return;
 }
