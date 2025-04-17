@@ -289,6 +289,7 @@ r_sp()
 
 // read and write tp, the thread pointer, which holds
 // this core's hartid (core number), the index into cpus[].
+// 不优化从寄存器中读到当前cpu id，
 static inline uint64
 r_tp()
 {

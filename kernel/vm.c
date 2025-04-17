@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -18,7 +20,8 @@ extern char trampoline[]; // trampoline.S
 /*
  * create a direct-map page table for the kernel.
  */
-void
+//虚拟内存的初始化，初始化内核页表，应该lab中不用管
+ void
 kvminit()
 {
   kernel_pagetable = (pagetable_t) kalloc();
@@ -49,11 +52,54 @@ kvminit()
 
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
+//告诉硬件“从现在起，使用 kernel_pagetable 作为当前的页表”
+//把内核页表添加到satp寄存器中;
+//在进程切换时，satp 寄存器会被配置为当前进程的用户页表地址
 void
 kvminithart()
 {
   w_satp(MAKE_SATP(kernel_pagetable));
   sfence_vma();
+}
+
+//用于创建进程的内核页表副本
+pagetable_t
+proc_kernel_pagetable_bak(struct proc *p){
+  pagetable_t kernel_pagetable_bak;
+  printf("      proc_kernel_pagetable_bak           \n"); 
+  //1.分配一片空的页表
+  kernel_pagetable_bak=(pagetable_t)kalloc();//分配了一个物理地址，但是页表是空的；
+  if(kernel_pagetable_bak==0){//如果内存没有分配成功的话,返回0；
+    return 0;
+  }
+  memset(kernel_pagetable_bak,0,PGSIZE);//整理物理内存并清0；
+
+  //2.将kernal_pagetable的地址通过uvmmap添加映射到kernel_pagetable_back中；
+  //参考vm.c/vminit()
+  // uart registers
+  uvmmap(kernel_pagetable_bak,UART0, UART0, PGSIZE, PTE_R | PTE_W);
+
+  // virtio mmio disk interface
+  uvmmap(kernel_pagetable_bak,VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // CLINT
+  uvmmap(kernel_pagetable_bak,CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+
+  // PLIC
+  uvmmap(kernel_pagetable_bak,PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  // map kernel text executable and read-only.
+  uvmmap(kernel_pagetable_bak,KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+
+  // map kernel data and the physical RAM we'll make use of.
+  uvmmap(kernel_pagetable_bak,(uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  uvmmap(kernel_pagetable_bak,TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  return kernel_pagetable_bak;
+  //return kernel_pagetable_bak;
 }
 
 // Return the address of the PTE in page table pagetable
@@ -69,6 +115,7 @@ kvminithart()
 //   12..20 -- 9 bits of level-0 index.
 //    0..11 -- 12 bits of byte offset within the page.
 //根据虚拟地址va和页表pagetable获取对应的pte条目；
+//walk函数的后10位是被mask了的，因此walk函数返回的只是虚拟地址的页框，既所在页起点的物理地址
 pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
@@ -92,6 +139,8 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
 // Can only be used to look up user pages.
+//从虚拟地址和提供的页表中进行物理地址的寻址
+//和kvmpa区别,kvmpa默认从内核页表中寻址,并且直接返回虚拟地址对应的物理地址
 uint64
 walkaddr(pagetable_t pagetable, uint64 va)
 {
@@ -108,16 +157,18 @@ walkaddr(pagetable_t pagetable, uint64 va)
     return 0;
   if((*pte & PTE_U) == 0)
     return 0;
-  pa = PTE2PA(*pte);//三级pte指向的地址即为虚拟地址对应的物理地址
-  return pa;
+  pa = PTE2PA(*pte);//三级pte指向的地址即为虚拟地址对应的页框物理地址，而不是虚拟地址指向的物理地址
+  return pa;//返回页框，用户自己根据va添加页偏移
 }
 
 // add a mapping to the kernel page table.
 // only used when booting.
 // does not flush TLB or enable paging.
+//对内核页表添加pte条目；
 void
 kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 {
+  //调用为页表添加条目的函数，在内核页表中添加虚拟地址pte
   if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
     panic("kvmmap");
 }
@@ -126,41 +177,43 @@ kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 // a physical address. only needed for
 // addresses on the stack.
 // assumes va is page aligned.
+//通过内核页表进行虚拟地址的寻址
 uint64
 kvmpa(uint64 va)
 {
-  uint64 off = va % PGSIZE;
+  uint64 off = va % PGSIZE;//取出后12位,
   pte_t *pte;
   uint64 pa;
   
-  pte = walk(kernel_pagetable, va, 0);
-  if(pte == 0)
+  pte = walk(kernel_pagetable, va, 0);//从内核页表中寻址
+  if(pte == 0)//寻址失败
     panic("kvmpa");
-  if((*pte & PTE_V) == 0)
+  if((*pte & PTE_V) == 0)//寻到了未分配的地址，
     panic("kvmpa");
-  pa = PTE2PA(*pte);
-  return pa+off;
+  pa = PTE2PA(*pte);//转为物理地址，其实此时并不完整，只有前44位ppn,没有后12位；
+  return pa+off;//前44位和后12位补全
 }
 
 // Create PTEs for virtual addresses starting at va that refer to
 // physical addresses starting at pa. va and size might not
 // be page-aligned. Returns 0 on success, -1 if walk() couldn't
 // allocate a needed page-table page.
+//为虚拟地址创建pte条目
 int
 mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 {
   uint64 a, last;
   pte_t *pte;
 
-  a = PGROUNDDOWN(va);
+  a = PGROUNDDOWN(va);//向下取虚拟地址
   last = PGROUNDDOWN(va + size - 1);
   for(;;){
-    if((pte = walk(pagetable, a, 1)) == 0)
+    if((pte = walk(pagetable, a, 1)) == 0)//寻址失败
       return -1;
-    if(*pte & PTE_V)
+    if(*pte & PTE_V)//寻到的物理地址已经分配
       panic("remap");
-    *pte = PA2PTE(pa) | perm | PTE_V;
-    if(a == last)
+    *pte = PA2PTE(pa) | perm | PTE_V;//根据传递的权限参数配置pte条目
+    if(a == last)//虚拟地址创建pte条目完成
       break;
     a += PGSIZE;
     pa += PGSIZE;
@@ -168,35 +221,47 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   return 0;
 }
 
+//在进程的用户空间中，通过对内核页表的副本添加pte条目，使得进程可以通过该内核页表副本直接访问用户空间中的va指向的pa；
+void
+uvmmap(pagetable_t pagetable,uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  //调用为页表添加条目的函数，在内核页表中添加虚拟地址pte
+  if(mappages(pagetable, va, sz, pa, perm) != 0)
+    panic("uvmmap");
+}
+
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
+//用户释放物理内存后删除pte条目;
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 {
   uint64 a;
-  pte_t *pte;
+  pte_t *pte;//由于是用户空间，所以都是虚拟地址，需要用到进程的用户页表进行寻址映射；
 
-  if((va % PGSIZE) != 0)
+  if((va % PGSIZE) != 0)//以页为单位进行物理内存的分配、寻址和释放
     panic("uvmunmap: not aligned");
-
+  
+  //由于需要释放多页物理内存，多次进行pte条目的解绑定
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
-    if((pte = walk(pagetable, a, 0)) == 0)
+    if((pte = walk(pagetable, a, 0)) == 0)//虚拟地址寻址没有寻到
       panic("uvmunmap: walk");
     if((*pte & PTE_V) == 0)
       panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
-    if(do_free){
+    if(do_free){//释放物理内存
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
-    *pte = 0;
+    *pte = 0;//pte条目置空
   }
 }
 
 // create an empty user page table.
 // returns 0 if out of memory.
+//用户创建一个空页表，分配物理内存；
 pagetable_t
 uvmcreate()
 {
@@ -218,12 +283,15 @@ uvminit(pagetable_t pagetable, uchar *src, uint sz)
 
   if(sz >= PGSIZE)
     panic("inituvm: more than a page");
-  mem = kalloc();
+  mem = kalloc();//分配物理内存
   memset(mem, 0, PGSIZE);
+  //用户的地址空间从0开始，所以创建0对应的用户页表条目；
   mappages(pagetable, 0, PGSIZE, (uint64)mem, PTE_W|PTE_R|PTE_X|PTE_U);
-  memmove(mem, src, sz);
+  memmove(mem, src, sz);//将其他用户的状态转移到当前新建的用户中？
 }
 
+
+//根据n是正/负调用dealloc还是alloc
 // Allocate PTEs and physical memory to grow process from oldsz to
 // newsz, which need not be page aligned.  Returns new size or 0 on error.
 uint64
@@ -256,6 +324,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 // newsz.  oldsz and newsz need not be page-aligned, nor does newsz
 // need to be less than oldsz.  oldsz can be larger than the actual
 // process size.  Returns the new process size.
+//重新分配大小并添加pte，因为新分配了物理地址需要创建对应的pte，才能在使用时找到
 uint64
 uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 {
@@ -278,17 +347,21 @@ freewalk(pagetable_t pagetable)
   // there are 2^9 = 512 PTEs in a page table.
   for(int i = 0; i < 512; i++){//遍历页表的所有pte条目
     pte_t pte = pagetable[i];//根据索引得到第i个pte条目
-    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){//pte条目valid,没有读/写/执行权限->表示指向下一级页表，而不是指向虚拟地址对应的物理地址。
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){//pte条目valid,
+      //没有读/写/执行权限->表示指向下一级页表，而不是指向虚拟地址对应的物理地址。
       // this PTE points to a lower-level page table.
       uint64 child = PTE2PA(pte);//pte条目转化为pagtable；
       freewalk((pagetable_t)child);//递归遍历该pagetable的每一个pte条目
       pagetable[i] = 0;//将该pte条目置为0；
-    } else if(pte & PTE_V){//pte条目有效，但是有权限，既有用户在使用;
+    } else if(pte & PTE_V){//pte条目有效，但是检索到了第三级，说明执行错误
       panic("freewalk: leaf");
     }//如果本身为0则跳过
   }
   kfree((void*)pagetable);//因为一个页表有512个pte条目,每一个条目8bytes,共4096bytes,正好占一页物理内存；
 }
+
+
+//下面是内核/用户态复制/传递，数据/内存的函数了
 
 // Free user memory pages,
 // then free page-table pages.

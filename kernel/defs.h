@@ -160,9 +160,15 @@ int             uartgetc(void);
 // vm.c
 void            kvminit(void);
 void            kvminithart(void);
+
+pagetable_t     proc_kernel_pagetable_bak(struct proc *);//新建的用于创建进程的内核页表副本的函数
+
 uint64          kvmpa(uint64);
 void            kvmmap(uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
+
+void            uvmmap(pagetable_t,uint64, uint64, uint64, int);//新建的为用户空间虚拟地址添加到进程内核页表副本的映射；
+
 pagetable_t     uvmcreate(void);
 void            uvminit(pagetable_t, uchar *, uint);
 uint64          uvmalloc(pagetable_t, uint64, uint64);
