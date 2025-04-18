@@ -39,11 +39,23 @@ procinit(void)
       char *pa = kalloc();//为进程分配内存空间(物理地址)
       if(pa == 0)
         panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));//计算进程栈的虚拟地址起点；
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);//为该虚拟地址配置pte条目；
+      //计算进程栈的虚拟地址起点；
+      uint64 va = KSTACK((int) (p - proc));
+      
+      //为该虚拟地址配置内核页表的pte条目
+      //使得内核在切换进程的时候，知道该进程栈从什么地方起始，才能实现切换；
+      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      //因此在创建的进程内核页表中也应当知道自己进程栈的物理地址是从什么地方开始的；
+      //uvmmap(p->kernal_pagetable_bak,va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      //但此时存在问题，此时还没有创建kernel_pagetable_bak,所以进程的内核页表副本应当在所有进程初始化的时候创建
+      //所以最后应该在创建进程的时候，将进程的起始位置pa添加pte条目到该进程的内核页表副本中；
+
       p->kstack = va;//进程栈的起点就是虚拟地址;
   }
   kvminithart();
+  //该函数仅在初始化时调用一次，因为原本的内核页表装载一次之后不会改变，只会改变装载的用户页表；
+  //现在需要在不同的进程切换时同时改变装载在satp寄存器中的进程内核页表副本；
+  //初始化时依旧装载内核页表，不改变，找到进程切换的函数，在该函数中装载进程内核页表副本；
 }
 
 // Must be called with interrupts disabled,
@@ -140,6 +152,14 @@ found:
     return 0;
   }
 
+  //在内核页表副本中添加本进程的进程栈起点对应的物理地址映射关系
+  
+  //进程内核页表中也应当知道自己进程栈的物理地址是从什么地方开始的；
+  //通过为进程栈起点地址配置进程内核页表副本的pte条目来实现索引
+  //使得内核使用进程的内核页表副本在切换进程的时候，知道该进程栈从什么地方起始，才能运行该进程；
+  //已经为该进程分配过进程栈的虚拟地址和物理地址，所以从内核页表中索引出来即可
+  uvmmap(p->kernal_pagetable_bak,p->kstack, (uint64)kvmpa_kpgtbl(p->kstack), PGSIZE, PTE_R | PTE_W);
+  
   // Set up new context to start executing at forkret,
   // which returns to user space.
   //5.创建并初始化上下文；
@@ -164,7 +184,7 @@ freeproc(struct proc *p)
     proc_freepagetable(p->pagetable, p->sz);
   if(p->kernal_pagetable_bak){//清除并释放进程的内核页表副本
     proc_free_kernel_pagetabel_bak(p->kernal_pagetable_bak);
-    printf("    kernel_pagetable_bak has been freed\n");
+    //printf("    kernel_pagetable_bak has been freed\n");
   }
   p->pagetable = 0;
   p->sz = 0;
@@ -234,7 +254,7 @@ proc_free_kernel_pagetabel_bak(pagetable_t kernel_pagetable_bak){
   //递归清除三级条目
   for(int i=0;i<512;++i){
     pte_t pte=kernel_pagetable_bak[i];//取出条目
-    if(pte&PTE_V){//条目有效，进行清除，并且将对应的pa释放
+    if(pte&PTE_V){//条目有效，进行清除，并且将对应的pa释放`
       kernel_pagetable_bak[i]=0;//清除页表条目的物理地址上的内容；
       //uvmunmap(kernel_pagetable_bac,child,1,0);//清除页表的映射
       if((pte&(PTE_R|PTE_W|PTE_X))==0){//如果是1或2级pte条目，则对其子条目进行递归的清除；
@@ -514,6 +534,10 @@ scheduler(void)
   struct cpu *c = mycpu();//获取cpu信息
   
   c->proc = 0;
+
+  //没有进程运行时，应当使用内核页表
+  kvminithart();
+
   for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();//允许中断
@@ -526,12 +550,28 @@ scheduler(void)
         // to release its lock and then reacquire it
         // before jumping back to us.
         p->state = RUNNING;
+        //将一个就绪状态的进程装载到cpu的进程对象中；
         c->proc = p;
+        //在切换上下文之前，还应当对cpu的内核页表进行重新装载；
+        proc_inithart(p->kernal_pagetable_bak);
+
+        //printf("kgptbl has been swtiched to pid:%d\n",p->pid);
+        //该打印指令会看到多次连续未切换进程的打印输出,有多个原因：
+        //1.可能是没有其他进程处于runnable,当该进程运行了一个时间片后,后续轮询还是该进程执行
+        //2.其他原因还没理解到
+
         swtch(&c->context, &p->context);
+        //切换cpu为该进程的上下文,此时cpu会运行该进程的任务
+        //进程结束或sleep等情况挂起后，会调用swtch回来
+        //此时要在本函数中通过for循环给cpu重新分配进程任务去执行
+        //此处c->proc=0,是让cpu暂时停止工作，等待切换进程的上下文之后运行下一个进程
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
+
+        //此时没有进程运行,装载内核页表
+        kvminithart();
 
         found = 1;
       }
@@ -555,6 +595,7 @@ scheduler(void)
 // be proc->intena and proc->noff, but that would
 // break in the few places where a lock is held but
 // there's no process.
+//将当前进程的 CPU 控制权切换回调度器 scheduler()，以便让操作系统选择并运行下一个进程。
 void
 sched(void)
 {

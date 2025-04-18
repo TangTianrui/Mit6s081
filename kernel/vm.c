@@ -47,7 +47,9 @@ kvminit()
 
   // map the trampoline for trap entry/exit to
   // the highest virtual address in the kernel.
+  //只有trempoline不是直接映射;
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+  
 }
 
 // Switch h/w page table register to the kernel's page table,
@@ -60,6 +62,14 @@ kvminithart()
 {
   w_satp(MAKE_SATP(kernel_pagetable));
   sfence_vma();
+}
+
+//创建函数，使得将进程的内核页表副本载入到satp寄存器中
+void
+proc_inithart(pagetable_t kernel_pagetable_bak){
+  w_satp(MAKE_SATP(kernel_pagetable_bak));//进程的内核页表副本载入satp寄存器
+  sfence_vma();
+  //printf("kernel_pagetable has been switched to process_kpgtbl_bak\n");
 }
 
 //用于创建进程的内核页表副本
@@ -97,7 +107,7 @@ proc_kernel_pagetable_bak(struct proc *p){
   // the highest virtual address in the kernel.
   uvmmap(kernel_pagetable_bak,TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 
-  printf("    kernel_pagetable_bak has been create\n");
+  //printf("    kernel_pagetable_bak has been create\n");
   return kernel_pagetable_bak;
   //return kernel_pagetable_bak;
 }
@@ -185,6 +195,22 @@ kvmpa(uint64 va)
   pte_t *pte;
   uint64 pa;
   
+  pte = walk(myproc()->kernal_pagetable_bak, va, 0);//从内核页表中寻址
+  if(pte == 0)//寻址失败
+    panic("kvmpa");
+  if((*pte & PTE_V) == 0)//寻到了未分配的地址，
+    panic("kvmpa");
+  pa = PTE2PA(*pte);//转为物理地址，其实此时并不完整，只有前44位ppn,没有后12位；
+  return pa+off;//前44位和后12位补全
+}
+
+uint64
+kvmpa_kpgtbl(uint64 va)
+{
+  uint64 off = va % PGSIZE;//取出后12位,
+  pte_t *pte;
+  uint64 pa;
+  
   pte = walk(kernel_pagetable, va, 0);//从内核页表中寻址
   if(pte == 0)//寻址失败
     panic("kvmpa");
@@ -233,7 +259,8 @@ uvmmap(pagetable_t pagetable,uint64 va, uint64 pa, uint64 sz, int perm)
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
-//用户释放物理内存后删除单独某pte条目;
+//用户释放va指向的pa的物理内存后删除该某pte映射条目;
+//freewalk不能释放pa的物理内存,unmap可以解除pte中va对pa的映射关系，并释放pa的物理内存资源；
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 {
@@ -251,7 +278,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
-    if(do_free){//释放物理内存
+    if(do_free){//释放该va指向pa的物理内存；
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
@@ -341,6 +368,9 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 
 // Recursively free page-table pages.
 // All leaf mappings must already have been removed.
+//递归释放页表结构本身，既把页表项pte递归清空；
+//但是如果pte指向的pa分配了物理内存，freewalk不能释放该pa,且由于释放了pte,导致该pa的寻址可能丢失；
+//所以应当在freewalk之前unmap掉,unmap可以解除pte中va对pa的映射关系，并释放pa的物理内存资源；
 void
 freewalk(pagetable_t pagetable)
 {
