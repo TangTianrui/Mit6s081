@@ -66,7 +66,6 @@ kvminithart()
 pagetable_t
 proc_kernel_pagetable_bak(struct proc *p){
   pagetable_t kernel_pagetable_bak;
-  printf("      proc_kernel_pagetable_bak           \n"); 
   //1.分配一片空的页表
   kernel_pagetable_bak=(pagetable_t)kalloc();//分配了一个物理地址，但是页表是空的；
   if(kernel_pagetable_bak==0){//如果内存没有分配成功的话,返回0；
@@ -98,6 +97,7 @@ proc_kernel_pagetable_bak(struct proc *p){
   // the highest virtual address in the kernel.
   uvmmap(kernel_pagetable_bak,TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 
+  printf("    kernel_pagetable_bak has been create\n");
   return kernel_pagetable_bak;
   //return kernel_pagetable_bak;
 }
@@ -233,7 +233,7 @@ uvmmap(pagetable_t pagetable,uint64 va, uint64 pa, uint64 sz, int perm)
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
-//用户释放物理内存后删除pte条目;
+//用户释放物理内存后删除单独某pte条目;
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 {

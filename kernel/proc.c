@@ -162,6 +162,10 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)//释放页表
     proc_freepagetable(p->pagetable, p->sz);
+  if(p->kernal_pagetable_bak){//清除并释放进程的内核页表副本
+    proc_free_kernel_pagetabel_bak(p->kernal_pagetable_bak);
+    printf("    kernel_pagetable_bak has been freed\n");
+  }
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -222,6 +226,24 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
   //2.释放页表中的所有内存；
   uvmfree(pagetable, sz);
+}
+
+//清除进程的内核页表副本
+void
+proc_free_kernel_pagetabel_bak(pagetable_t kernel_pagetable_bak){
+  //递归清除三级条目
+  for(int i=0;i<512;++i){
+    pte_t pte=kernel_pagetable_bak[i];//取出条目
+    if(pte&PTE_V){//条目有效，进行清除，并且将对应的pa释放
+      kernel_pagetable_bak[i]=0;//清除页表条目的物理地址上的内容；
+      //uvmunmap(kernel_pagetable_bac,child,1,0);//清除页表的映射
+      if((pte&(PTE_R|PTE_W|PTE_X))==0){//如果是1或2级pte条目，则对其子条目进行递归的清除；
+        uint64 child=PTE2PA(pte);//转为下一级页表的起始物理地址；
+        proc_free_kernel_pagetabel_bak(((pagetable_t)child));//递归清除页表
+      }
+    }
+  }
+  kfree(kernel_pagetable_bak);//释放物理内存;
 }
 
 
