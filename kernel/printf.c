@@ -122,6 +122,9 @@ panic(char *s)
   printf(s);
   printf("\n");
   panicked = 1; // freeze uart output from other CPUs
+
+  //给panic添加backtrace函数,当发生内核异常时,就能不光从提示字符串找到错误发生位置,还能知道错误函数被调用的情况；
+  backtrace();
   for(;;)
     ;
 }
