@@ -26,6 +26,8 @@ statscopyin(char *buf, int sz) {
 // Copy from user to kernel.
 // Copy len bytes to dst from virtual address srcva in a given page table.
 // Return 0 on success, -1 on error.
+//lab3.3内置的从用户复制到内核的函数，替代原本的vm.c/copyin()，实现直接通过虚拟地址索引到物理内存
+//提示前置条件应当在进程中实现用户虚拟地址到物理地址的直接映射；
 int
 copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
@@ -33,6 +35,8 @@ copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 
   if (srcva >= p->sz || srcva+len >= p->sz || srcva+len < srcva)
     return -1;
+  // 这里使用 memmove 将用户空间的虚拟地址 srcva 所指向的内容复制到内核缓冲区 dst，
+  // 通过强转 (void *)srcva 是为了把用户地址当作指针使用，真正复制的是地址所指向的内容。
   memmove((void *) dst, (void *)srcva, len);
   stats.ncopyin++;   // XXX lock
   return 0;

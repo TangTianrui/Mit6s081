@@ -158,6 +158,11 @@ void            uartputc(int);
 void            uartputc_sync(int);
 int             uartgetc(void);
 
+//vmcopyin.c
+//lab3.3自带的复制函数,在进程的内核页表副本的基础上,实现了用户空间虚拟地址和物理地址的直接映射,所以可以直接使用虚拟地址
+int             copyin_new(pagetable_t , char *, uint64 , uint64 );
+int             copyinstr_new(pagetable_t , char *, uint64 , uint64 );
+
 // vm.c
 void            kvminit(void);
 void            kvminithart(void);
@@ -179,6 +184,7 @@ uint64          uvmdealloc(pagetable_t, uint64, uint64);
 #ifdef SOL_COW
 #else
 int             uvmcopy(pagetable_t, pagetable_t, uint64);
+int             cp_u2k_kpgtbl(pagetable_t kpgtbl,pagetable_t pgtbl,uint64 start,uint64 end);
 #endif
 void            uvmfree(pagetable_t, uint64);
 void            uvmunmap(pagetable_t, uint64, uint64, int);

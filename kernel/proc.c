@@ -263,9 +263,9 @@ proc_free_kernel_pagetabel_bak(pagetable_t kernel_pagetable_bak){
       }
     }
   }
-  kfree(kernel_pagetable_bak);//释放物理内存;
+  //释放内核页表副本的物理内存;进程栈的物理内存不在此处释放
+  kfree(kernel_pagetable_bak);
 }
-
 
 // a user program that calls exec("/init")
 // od -t xC initcode
@@ -294,6 +294,10 @@ userinit(void)
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
+  //将初始化后的用户页表项复制到进程内核页表副本中
+  cp_u2k_kpgtbl(p->kernal_pagetable_bak,p->pagetable,0,p->sz);
+  printf("cp ok\n");
+
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
@@ -311,12 +315,23 @@ userinit(void)
 int
 growproc(int n)
 {
+  //printf("grow\n");
   uint sz;
   struct proc *p = myproc();
 
   sz = p->sz;
   if(n > 0){
+    //判断不能超过PLIC条件
+    if(PGROUNDUP(sz+PGSIZE)>=PLIC){
+      return -1;
+    }
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+      return -1;
+    }
+    //对新分配的用户空间和创建的用户页表映射进行复制
+    //注意:这里的sz已经是经kalloc后的sz了,所以想要复制新创建的映射条目,应当从sz-n到sz,相当于原来的sz到原来的sz+n;
+    if(cp_u2k_kpgtbl(p->kernal_pagetable_bak,p->pagetable,sz-n,sz)<0){
+      panic("growproc copy failed");
       return -1;
     }
   } else if(n < 0){
@@ -331,6 +346,7 @@ growproc(int n)
 int
 fork(void)
 {
+  //printf("fork\n");
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
@@ -347,6 +363,14 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+  
+  //创建子进程时复制子进程的用户页表到子进程的内核页表副本中；
+  if(cp_u2k_kpgtbl(np->kernal_pagetable_bak,np->pagetable,0,np->sz)<0){
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
+
 
   np->parent = p;
 

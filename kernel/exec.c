@@ -13,6 +13,7 @@ static int loadseg(pde_t *pgdir, uint64 addr, struct inode *ip, uint offset, uin
 int
 exec(char *path, char **argv)
 {
+  //printf("exec\n");
   char *s, *last;
   int i, off;
   uint64 argc, sz = 0, sp, ustack[MAXARG+1], stackbase;
@@ -116,6 +117,9 @@ exec(char *path, char **argv)
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
+
+  //释放了旧的用户页表，且更改了新的用户页表，应当重新复制到当前的进程内核页表中
+  cp_u2k_kpgtbl(p->kernal_pagetable_bak,p->pagetable,0,p->sz);
 
   if(p->pid==1) vmprint(p->pagetable,0);
 

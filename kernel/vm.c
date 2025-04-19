@@ -194,13 +194,15 @@ kvmpa(uint64 va)
   uint64 off = va % PGSIZE;//取出后12位,
   pte_t *pte;
   uint64 pa;
-  
   pte = walk(myproc()->kernal_pagetable_bak, va, 0);//从内核页表中寻址
   if(pte == 0)//寻址失败
     panic("kvmpa");
   if((*pte & PTE_V) == 0)//寻到了未分配的地址，
     panic("kvmpa");
   pa = PTE2PA(*pte);//转为物理地址，其实此时并不完整，只有前44位ppn,没有后12位；
+  
+  //printf("kvmpa %p::%p\n",va,pa);//打印内核寻到的物理地址
+  
   return pa+off;//前44位和后12位补全
 }
 
@@ -321,6 +323,7 @@ uvminit(pagetable_t pagetable, uchar *src, uint sz)
 //根据n是正/负调用dealloc还是alloc
 // Allocate PTEs and physical memory to grow process from oldsz to
 // newsz, which need not be page aligned.  Returns new size or 0 on error.
+//注意：该函数的返回值是新的sz，既扩大后的sz
 uint64
 uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 {
@@ -403,6 +406,28 @@ uvmfree(pagetable_t pagetable, uint64 sz)
   freewalk(pagetable);
 }
 
+//将用户页表项复制到内核页表副本中
+int
+cp_u2k_kpgtbl(pagetable_t kpgtbl,pagetable_t pgtbl,uint64 start,uint64 end){
+  pte_t *upte,*kpte;
+  start=PGROUNDUP(start);//取下一页的页框地址
+  for(int i=start;i<end;i+=PGSIZE){
+    if((upte=walk(pgtbl,i,0))<0){
+      panic("cp_u2k_kpgtbl upte walk no exist");
+      return -1;
+    }
+    if((kpte=walk(kpgtbl,i,1))<0){
+      panic("cp_u2k_kpgtbl kpte walk error");
+      return -1;
+    }
+    uint64 pa=PTE2PA(*upte);//取出用户虚拟地址对应的物理地址
+    uint64 flag=PTE_FLAGS(*upte)&(~PTE_U);//取出标志位并取消PTE_U;
+    *kpte=PA2PTE(pa)|flag;//修改内核页表副本的虚拟地址i的映射条目pte,使其和用户虚拟地址指向相同的地址;
+  }
+  return 0;
+}
+
+
 // Given a parent process's page table, copy
 // its memory into a child's page table.
 // Copies both the page table and the
@@ -482,10 +507,15 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 // Copy from user to kernel.
 // Copy len bytes to dst from virtual address srcva in a given page table.
 // Return 0 on success, -1 on error.
-int
-copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
+//原本的copyin函数,根据传入的用户页表和虚拟地址,检索对应的物理地址;
+//再将物理地址上的数据复制到内核提供的目标地址中；
+int copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len){ 
+  return copyin_new(pagetable,dst,srcva,len);
+}
+
+/*
 {
-  uint64 n, va0, pa0;
+  uint64 n, va0, pa0=0;
 
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
@@ -501,8 +531,15 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     dst += n;
     srcva = va0 + PGSIZE;
   }
+  if(pa0!=0){
+    printf("copyin %p:%p-->%p:%p\n",srcva,pa0,(uint64)dst,kvmpa((uint64)dst));//打印虚拟地址以及对应复制到的内容
+  }  
+
+  
   return 0;
 }
+*/
+
 
 // Copy a null-terminated string from user to kernel.
 // Copy bytes to dst from virtual address srcva in a given page table,
@@ -510,6 +547,10 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 // Return 0 on success, -1 on error.
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
+{
+  return copyinstr_new(pagetable,dst,srcva,max);
+}
+/*
 {
   uint64 n, va0, pa0;
   int got_null = 0;
@@ -546,6 +587,8 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+*/
+
 
 const static char *pre[]={"..",".. ..",".. .. .."};//代表层级的前缀字符串输出；
 
