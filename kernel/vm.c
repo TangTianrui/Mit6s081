@@ -419,9 +419,16 @@ cp_u2k_kpgtbl(pagetable_t kpgtbl,pagetable_t pgtbl,uint64 start,uint64 end){
     if((kpte=walk(kpgtbl,i,1))<0){
       panic("cp_u2k_kpgtbl kpte walk error");
       return -1;
-    }
+    }    
     uint64 pa=PTE2PA(*upte);//取出用户虚拟地址对应的物理地址
     uint64 flag=PTE_FLAGS(*upte)&(~PTE_U);//取出标志位并取消PTE_U;
+    //此处不能直接用mappages()进行绑定，应当参考mappages提取底层实现，否则对同样的虚拟地址mappages会报remap错误；
+    /*
+    if(mappages(kpgtbl,i,PGSIZE,pa,flag)<0){
+      panic("cp_u2k_kpgtbl kpte walk error");
+      return -1;
+    }    
+    */
     *kpte=PA2PTE(pa)|flag;//修改内核页表副本的虚拟地址i的映射条目pte,使其和用户虚拟地址指向相同的地址;
   }
   return 0;
