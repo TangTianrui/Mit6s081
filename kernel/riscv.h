@@ -287,6 +287,16 @@ r_sp()
   return x;
 }
 
+//通过汇编语言，将寄存器s0的内容取出并返回，该s0寄存器存放的是当前执行函数的栈帧指针fp
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  asm volatile("mv %0, s0" : "=r" (x) );
+  return x;
+}
+
+
 // read and write tp, the thread pointer, which holds
 // this core's hartid (core number), the index into cpus[].
 static inline uint64

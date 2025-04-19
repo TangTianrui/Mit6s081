@@ -132,3 +132,28 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+void
+backtrace(void){
+  //获取当前帧指针
+  uint64 fp=r_fp();
+  //定义frame=fp,通过指针'*'将帧指针指向地址的值取出；
+  //uint64 *frame;
+  //由于地址的大小也是8bytes,所以通过uint64的指针进行+/-操作也是对地址进行+/-8操作；
+  //frame=(void*)fp;
+
+  //这样使得*frame[-1]直接索引出ret,*frame[-2]直接索引出前一个帧指针；
+  //同理,对帧指针fp直接操作地址进行8byte的移位,再通过强转+解地址也能得到相同的效果；
+  //printf("backtrace by pointer: ret=%p,pre=%p\n",frame[-1],frame[-2]);
+  //printf("backtrace by addr:    ret=%p,pre=%p\n",*(uint64*)(fp-8),*(uint64*)(fp-16));
+  
+  //定义当前栈所在页的页起点和页终点,帧指针指向的地址都应在该栈所分配页内
+  uint64 upbound=PGROUNDUP(fp),lowbound=PGROUNDDOWN(fp);
+  printf("backtrace:\n");
+  while(fp>lowbound&&fp<upbound){
+    printf("%p\n",*(uint64*)(fp-8));//打印当前栈帧返回值所在地址；
+    fp=*(uint64*)(fp-16);
+  }
+
+  return ;
+}
