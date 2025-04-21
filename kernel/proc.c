@@ -243,10 +243,12 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+    //分配物理内存,sz是新的进程内存大小
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
   } else if(n < 0){
+    //删除pte映射条目,并且释放条目所在物理内存
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
   p->sz = sz;

@@ -38,6 +38,8 @@ sys_wait(void)
   return wait(p);
 }
 
+//该系统调用函数实现物理内存的分配和清除
+//lab5.lazy只关心内存的懒分配
 uint64
 sys_sbrk(void)
 {
@@ -47,8 +49,26 @@ sys_sbrk(void)
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
+  //由于lazy allocation, 在sbrk中只标记sz的扩大,而不实际分配物理内存
+  //后续缺页错误时根据sz标记位再按需分配物理内存
+
+  printf("pre_mem size:%d\n",addr);
+  if(n<=0){
+    //如果是释放内存，正常释放
+    if(growproc(n)<0){
+      return -1;
+    }
+  }
+  else{
+    //如果是分配内存,
+    printf("lazy\n");
+    myproc()->sz+=n;
+  }
+  /*
   if(growproc(n) < 0)
-    return -1;
+    return -1;  
+  */
+  printf("new_mem size:%d\n",myproc()->sz);
   return addr;
 }
 

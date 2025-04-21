@@ -180,16 +180,21 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     panic("uvmunmap: not aligned");
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
+    //物理寻址是否成功
     if((pte = walk(pagetable, a, 0)) == 0)
       panic("uvmunmap: walk");
+    //是否已分配
     if((*pte & PTE_V) == 0)
       panic("uvmunmap: not mapped");
+    //是否寻到了物理页框的地址
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
+      //对物理页的内存释放;
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
+    //pte条目置零，既清空pte条目
     *pte = 0;
   }
 }
@@ -260,9 +265,11 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 {
   if(newsz >= oldsz)
     return oldsz;
-
+  
+  //存在要释放的页
   if(PGROUNDUP(newsz) < PGROUNDUP(oldsz)){
     int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
+    //解除映射关系,释放物理页内存
     uvmunmap(pagetable, PGROUNDUP(newsz), npages, 1);
   }
 
