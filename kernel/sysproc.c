@@ -139,9 +139,21 @@ sys_sigalarm(void){
 //用于主动恢复用户空间,将保存的用户寄存器进行恢复
 uint64
 sys_sigreturn(void){
-  
-  
-
   printf("sigreturn\n");
+  
+  //恢复时钟中断函数之前的程序寄存器和状态
+  struct proc *p=myproc();
+  if(p->trapframe->epc==p->alarm_tf_bak->epc){
+    printf("bak failed\n");
+  }
+  printf("bak success\n");
+  
+  *(p->trapframe)=*(p->alarm_tf_bak);
+  //1.此处也可以通过地址，进行复制内存实现相同的效果，具体对比和差异在trap.c/usertrap()中有解释
+  //2.注意sizeof(p->trapframe)=8,因为p->trapframe是struct trapframe *类型,是一个地址,sizeof(*)=8bytes;
+  //3.而实际要复制的内容是struct trapframe,sizeof(struct trapframe)=288bytes;
+  //memmove(p->trapframe,p->alarm_tf_bak,sizeof(struct trapframe));
+  //sizeof(p->trapframe);
+  
   return 0;
 }

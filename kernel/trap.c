@@ -99,10 +99,18 @@ usertrap(void)
     if(p->alarm_interval!=0&&++p->alarm_last>=p->alarm_interval){
       printf("alarm in trap!!!\n");
       p->alarm_last=0;
+
+      //为了解决下述问题，在跳转回用户模式的时钟中断处理函数之前，保存当前的用户程序寄存器等状态等待恢复；
+      //恢复可以在中断处理函数执行之后实现，也可以在中断处理函数中实现，本实验中在中断处理函数中调用sys_sigreturn()恢复；
+      //1.tf_bak和tf都是指针类型,导致直接复制了地址而不是值,后续tf改变也反应到了tf_bak中;
+      //2.此处有两种实现思路：分别是直接操作地址进行内存的复制，或者通过解引用进行逐字段的赋值；
+      //3.一个偏底层一个更具有解释意义;但一般解引用更安全
+      *(p->alarm_tf_bak)=*(p->trapframe);
+      //memmove(p->alarm_tf_bak,p->trapframe,sizeof(struct trapframe));
+
       //将中断后返回用户空间后执行的地址改为了传入的时钟中断函数,但是原本用户正在执行的地址被覆盖了;
       //因此进入时钟中断函数后，无法正确返回用户程序；
       p->trapframe->epc=p->alarm_func;
-      //w_sepc(p->alarm_func);
     }
     yield();
   }
