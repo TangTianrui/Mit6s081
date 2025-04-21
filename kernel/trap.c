@@ -96,8 +96,8 @@ usertrap(void)
   // give up the CPU if this is a timer interrupt.
   //时钟中断的处理程序
   if(which_dev == 2){
-    if(p->alarm_interval!=0&&++p->alarm_last>=p->alarm_interval){
-      printf("alarm in trap!!!\n");
+    if(p->alarm_interval!=0&&++p->alarm_last>=p->alarm_interval&&p->alarm_is_infunc==0){
+      //printf("alarm in trap!!!\n");
       p->alarm_last=0;
 
       //为了解决下述问题，在跳转回用户模式的时钟中断处理函数之前，保存当前的用户程序寄存器等状态等待恢复；
@@ -105,12 +105,14 @@ usertrap(void)
       //1.tf_bak和tf都是指针类型,导致直接复制了地址而不是值,后续tf改变也反应到了tf_bak中;
       //2.此处有两种实现思路：分别是直接操作地址进行内存的复制，或者通过解引用进行逐字段的赋值；
       //3.一个偏底层一个更具有解释意义;但一般解引用更安全
+      //4.后续在proc.c/fork()中也看到子进程tf的复制也是通过解引用的赋值实现的；
       *(p->alarm_tf_bak)=*(p->trapframe);
       //memmove(p->alarm_tf_bak,p->trapframe,sizeof(struct trapframe));
 
       //将中断后返回用户空间后执行的地址改为了传入的时钟中断函数,但是原本用户正在执行的地址被覆盖了;
       //因此进入时钟中断函数后，无法正确返回用户程序；
       p->trapframe->epc=p->alarm_func;
+      p->alarm_is_infunc=1;
     }
     yield();
   }
@@ -211,11 +213,13 @@ kerneltrap()
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING){
     
+    /*
     struct proc *p=myproc();
     if(p->alarm_interval!=0&&++p->alarm_last>=p->alarm_interval){
-      printf("alarm in kerneltrap!!!\n");
+      //printf("alarm in kerneltrap!!!\n");
       p->alarm_last=0;
-    }    
+    }      
+    */
     yield();
   }
 

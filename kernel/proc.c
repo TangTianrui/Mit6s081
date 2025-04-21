@@ -125,6 +125,7 @@ found:
   p->alarm_interval=0;
   p->alarm_last=0;
   p->alarm_func=0;
+  p->alarm_is_infunc=0;
   if((p->alarm_tf_bak= (struct trapframe *)kalloc()) == 0){
     release(&p->lock);
     return 0;
@@ -163,7 +164,8 @@ freeproc(struct proc *p)
   //清空进程的alarm信息
   p->alarm_func=0;
   p->alarm_interval=0;
-  p->alarm_last=0;  
+  p->alarm_last=0;
+  p->alarm_is_infunc=0;  
   if(p->alarm_tf_bak)
     kfree((void*)p->alarm_tf_bak);
   p->alarm_tf_bak = 0;

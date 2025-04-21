@@ -143,11 +143,13 @@ sys_sigreturn(void){
   
   //恢复时钟中断函数之前的程序寄存器和状态
   struct proc *p=myproc();
+  /*
   if(p->trapframe->epc==p->alarm_tf_bak->epc){
     printf("bak failed\n");
   }
-  printf("bak success\n");
-  
+  printf("bak success\n");  
+  */
+
   *(p->trapframe)=*(p->alarm_tf_bak);
   //1.此处也可以通过地址，进行复制内存实现相同的效果，具体对比和差异在trap.c/usertrap()中有解释
   //2.注意sizeof(p->trapframe)=8,因为p->trapframe是struct trapframe *类型,是一个地址,sizeof(*)=8bytes;
@@ -155,5 +157,7 @@ sys_sigreturn(void){
   //memmove(p->trapframe,p->alarm_tf_bak,sizeof(struct trapframe));
   //sizeof(p->trapframe);
   
+  //即将退出时钟中断函数,设置标志位
+  p->alarm_is_infunc=0;
   return 0;
 }
