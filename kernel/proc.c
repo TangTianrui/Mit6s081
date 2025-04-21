@@ -121,6 +121,16 @@ found:
     return 0;
   }
 
+  //初始化进程的alarm参数
+  p->alarm_interval=0;
+  p->alarm_last=0;
+  p->alarm_func=0;
+  if((p->alarm_tf_bak= (struct trapframe *)kalloc()) == 0){
+    release(&p->lock);
+    return 0;
+  }
+
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -149,6 +159,15 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+
+  //清空进程的alarm信息
+  p->alarm_func=0;
+  p->alarm_interval=0;
+  p->alarm_last=0;  
+  if(p->alarm_tf_bak)
+    kfree((void*)p->alarm_tf_bak);
+  p->alarm_tf_bak = 0;
+
   p->state = UNUSED;
 }
 
@@ -522,6 +541,8 @@ sched(void)
 }
 
 // Give up the CPU for one scheduling round.
+//当前进程主动放弃 CPU，让调度器有机会调度其他进程；
+//当该进程在该时间片内已经没有工作了，与其等待时间片结束被动调度进程，不如主动结束，通知调度器进行进程调度，提高cpu资源利用率；
 void
 yield(void)
 {
