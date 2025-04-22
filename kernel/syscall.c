@@ -68,6 +68,13 @@ int
 argaddr(int n, uint64 *ip)
 {
   *ip = argraw(n);
+  struct proc *p=myproc();
+  if(walkaddr(p->pagetable,*ip)==0&&p->sz>*ip&&p->trapframe->sp<*ip){
+    //没有条目,并且在懒分配的地址范围内->那么说明是懒分配地址且没有分配物理内存和创建pte映射
+    if(uvm_lazyalloc(p->pagetable,*ip)<0){
+      return -1;
+    }
+  }
   return 0;
 }
 

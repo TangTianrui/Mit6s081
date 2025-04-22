@@ -65,7 +65,15 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  }else if(r_scause()==13||r_scause()==15){
+    //缺页异常
+    //printf("page error\n");
+    if(r_stval()>p->sz||r_stval()<p->trapframe->sp) p->killed=1;
+    else if(uvm_lazyalloc(p->pagetable,r_stval())<0){
+      //可能是没有成功分配物理内存给va，也可能页表创建或者映射失败
+      p->killed=1;
+    }
+  }else if((which_dev = devintr()) != 0){
     // ok
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);

@@ -52,12 +52,14 @@ sparse_memory_unmap(char *s)
     *(char **)i = i;
 
   for (i = prev_end + PGSIZE; i < new_end; i += PGSIZE * PGSIZE) {
+    //printf("fork!\n");
     pid = fork();
     if (pid < 0) {
       printf("error forking\n");
       exit(1);
     } else if (pid == 0) {
       sbrk(-1L * REGION_SZ);
+      //printf("sbrk in sub_pid success\n");
       *(char **)i = i;
       exit(0);
     } else {

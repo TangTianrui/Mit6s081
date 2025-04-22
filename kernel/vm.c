@@ -181,12 +181,17 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     //物理寻址是否成功
-    if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+    if((pte = walk(pagetable, a, 0)) == 0){
+      continue;
+      //panic("uvmunmap: walk");
+    }
     //是否已分配
-    if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
-    //是否寻到了物理页框的地址
+    if((*pte & PTE_V) == 0){
+      *pte=0;
+      continue;
+      //panic("uvmunmap: not mapped");
+    }
+    //是否寻到了物理页框的地址还是说是pte中间级条目的地址
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -227,6 +232,63 @@ uvminit(pagetable_t pagetable, uchar *src, uint sz)
   mappages(pagetable, 0, PGSIZE, (uint64)mem, PTE_W|PTE_R|PTE_X|PTE_U);
   memmove(mem, src, sz);
 }
+
+int
+uvm_lazyalloc(pagetable_t pgtbl,uint64 va){
+
+  //直接进行分配,判断工作在进入该函数之前需要进行判断
+  char *pa;
+  //printf("lazy alloc\n");
+
+  //取页内存低地址进行分配物理内存和pte条目；
+  va=PGROUNDDOWN(va);
+
+  //分配物理内存
+  pa=kalloc();
+  if(pa==0){
+    return -1;
+  }
+  memset(pa,0,PGSIZE);
+  
+  //创建pte条目mappages(pagtbl,va,PGSIZE,pa, PTE_W|PTE_X|PTE_R|PTE_U)
+  pte_t *pte;
+  if((pte = walk(pgtbl, va, 1)) == 0)
+    return -1;
+  
+  *pte=PA2PTE(pa)|PTE_U|PTE_R|PTE_W|PTE_X|PTE_V;
+
+  return 0;
+}
+
+int
+uvm_lazyfree(pagetable_t pgtbl,uint64 oldsz,uint64 newsz){
+  if(newsz >= oldsz)
+    return 1;
+  
+  uint64 low_bd=PGROUNDUP(newsz),up_bd=PGROUNDUP(oldsz),now=low_bd;
+  pte_t *pte;
+  //存在要释放的页
+  printf("lazyfree from:%p to:%p\n",low_bd,up_bd);
+  for(;now<up_bd;now+=PGSIZE){
+    //解除映射关系,释放物理页内存
+    if((pte=walk(pgtbl,now,0))==0) continue;
+    else if((*pte&PTE_V)==0){
+      *pte=0;
+      continue;
+    }
+    else if(PTE_FLAGS(*pte)==PTE_V){
+      panic("lazy free not a leaf\n");
+      return -1;
+    }
+    //printf("free:%p\n",now);
+    //最后就是寻到了有效的pte条目,释放内存,并且pte条目清空
+    uint64 pa=PTE2PA(*pte);
+    kfree((void*)pa);
+    *pte=0;
+  }
+  return 0;
+}
+
 
 // Allocate PTEs and physical memory to grow process from oldsz to
 // newsz, which need not be page aligned.  Returns new size or 0 on error.
@@ -290,6 +352,8 @@ freewalk(pagetable_t pagetable)
       freewalk((pagetable_t)child);
       pagetable[i] = 0;
     } else if(pte & PTE_V){
+      //pte叶子项；
+      printf("panic:%p\n",pte);
       panic("freewalk: leaf");
     }
   }
@@ -301,8 +365,11 @@ freewalk(pagetable_t pagetable)
 void
 uvmfree(pagetable_t pagetable, uint64 sz)
 {
+  //printf("uvmfree: freesize_%p\n",sz);
   if(sz > 0)
     uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 1);
+    //if(uvm_lazyfree(pagetable,sz,0)<0) panic("lazy free error\n");
+    //进程释放用户页表资源时的uvmunmap改为lazyfree,因为是懒分配,可能并没有实际页表
   freewalk(pagetable);
 }
 
@@ -321,10 +388,15 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+    if((pte = walk(old, i, 0)) == 0){
+      continue;
+      //panic("uvmcopy: pte should exist");
+    }
+    if((*pte & PTE_V) == 0){
+      *pte=0;
+      continue;
+      //panic("uvmcopy: page not present");
+    }
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
@@ -447,3 +519,26 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+const static char *pre[]={"..",".. ..",".. .. .."};//代表层级的前缀字符串输出；
+ 
+ //深度优先打印页表
+ void vmprint(pagetable_t pagetable,uint64 pg_dep){
+   //printf("vmprint\n");
+   //if(pg_dep>2) return;//pte只有3层页表
+   if(pg_dep==0){
+     printf("page table %p\n",pagetable);
+   }//第一次调用，打印提示词；
+   
+   for(int i=0;i<512;++i){
+     pte_t pte=pagetable[i];//遍历所有页表
+     if(pte&PTE_V){//pte条目有效
+       uint64 child=PTE2PA(pte);//将pte条目转化为下一级的页表
+       printf("%s%d: pte %p pa %p\n",pre[pg_dep],i,pte,child);//打印输出
+       if((pte&(PTE_R|PTE_W|PTE_X))==0){//说明没有到最后一级页表
+         vmprint((pagetable_t)child,1+pg_dep);//递归调用；
+       }
+     }
+   }
+   return;
+ }

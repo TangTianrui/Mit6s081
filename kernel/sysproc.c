@@ -43,32 +43,38 @@ sys_wait(void)
 uint64
 sys_sbrk(void)
 {
-  int addr;
+  uint64 addr;
   int n;
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
+  struct proc *p=myproc();
+  addr = p->sz;
   //由于lazy allocation, 在sbrk中只标记sz的扩大,而不实际分配物理内存
   //后续缺页错误时根据sz标记位再按需分配物理内存
 
-  printf("pre_mem size:%d\n",addr);
-  if(n<=0){
-    //如果是释放内存，正常释放
-    if(growproc(n)<0){
+  //printf("pre_mem size:%p to new_mem size:%p\n",addr,addr+n);
+  if(n<0){
+    if(-n>=addr){
       return -1;
     }
+    else p->sz= uvmdealloc(p->pagetable, addr, addr + n);
+    /*
+    if(uvm_lazyfree(p->pagetable,addr,addr+n)<0){
+      return -1;
+    }    
+    */
+    //如果是释放内存，正常释放
+    //实际上也不能正常释放，因为lazy alloc不会添加pte映射条目,所以growproc中的uvmunmap面对空条目会报错
   }
-  else{
-    //如果是分配内存,
-    printf("lazy\n");
-    myproc()->sz+=n;
+  else if(n>0){
+    //如果是分配内存,直接操作进程的内存大小
+    p->sz+=n;
   }
-  /*
-  if(growproc(n) < 0)
-    return -1;  
-  */
-  printf("new_mem size:%d\n",myproc()->sz);
+
+  //默认开辟4*4096(PGSIZE)=16374Bytes;
+  //根据打印信息发现sh和echo会分配16*4096(PGSIZE)=65536Bytes的物理内存
+  //printf("new_mem size:%d\n",p->sz);
   return addr;
 }
 
