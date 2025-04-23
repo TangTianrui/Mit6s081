@@ -64,6 +64,9 @@ void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
 
+int             kcow_links(void *);//返回该物理地址的cow后副本数量；
+int             kadd_cowlinks(void*);//给对应物理地址增加cow的引用计数；
+
 // log.c
 void            initlog(int, struct superblock*);
 void            log_write(struct buf*);
@@ -161,6 +164,10 @@ void            kvmmap(uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     uvmcreate(void);
 void            uvminit(pagetable_t, uchar *, uint);
+
+int             iscow(pagetable_t , uint64);//查询pte表项，判断是否是cow复制后的副本页
+void*           uvm_cowalloc(pagetable_t, uint64);//用于cow+trap的缺页异常,进行物理内存的分配和pte项的改动
+
 uint64          uvmalloc(pagetable_t, uint64, uint64);
 uint64          uvmdealloc(pagetable_t, uint64, uint64);
 int             uvmcopy(pagetable_t, pagetable_t, uint64);

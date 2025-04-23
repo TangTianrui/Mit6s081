@@ -67,7 +67,22 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  }else if(r_scause()==13||r_scause()==15){
+    uint64 er_add=r_stval();
+
+    if(er_add>p->sz||iscow(p->pagetable, er_add)<0){
+      //传入的地址错误,超过用户空间；或者不是cow复制后的页；那么确实就是触发了页错误  
+      //printf("wrong vaddr\n");
+      p->killed=1;
+    }
+    else{
+      //那么说明是cow页需要写时复制，则进行物理内存的分配
+      if(uvm_cowalloc(p->pagetable,PGROUNDDOWN(er_add))==0){
+        printf("cowalloc:error\n");
+        p->killed=1;
+      }
+    }
+  }else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
