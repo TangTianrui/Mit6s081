@@ -17,8 +17,10 @@ struct spinlock lock_locks;
 void
 freelock(struct spinlock *lk)
 {
+  //对所有锁操作之前进行加锁操作
   acquire(&lock_locks);
   int i;
+  //遍历锁指针,找到该锁,释放
   for (i = 0; i < NLOCK; i++) {
     if(locks[i] == lk) {
       locks[i] = 0;
@@ -28,6 +30,7 @@ freelock(struct spinlock *lk)
   release(&lock_locks);
 }
 
+//锁数组找一个空位置,然后把传入的锁存入;
 static void
 findslot(struct spinlock *lk) {
   acquire(&lock_locks);
@@ -43,6 +46,7 @@ findslot(struct spinlock *lk) {
 }
 #endif
 
+//初始化锁
 void
 initlock(struct spinlock *lk, char *name)
 {
@@ -58,14 +62,17 @@ initlock(struct spinlock *lk, char *name)
 
 // Acquire the lock.
 // Loops (spins) until the lock is acquired.
+//获取锁
 void
 acquire(struct spinlock *lk)
 {
+  //关闭中断
   push_off(); // disable interrupts to avoid deadlock.
   if(holding(lk))
     panic("acquire");
 
 #ifdef LAB_LOCK
+  //底层对gcc的命令：对n+1;
     __sync_fetch_and_add(&(lk->n), 1);
 #endif      
 
