@@ -44,6 +44,7 @@ binit(void)
   bcache.head.prev = &bcache.head;
   bcache.head.next = &bcache.head;
   for(b = bcache.buf; b < bcache.buf+NBUF; b++){
+    //从前往后依次插入到head后面
     b->next = bcache.head.next;
     b->prev = &bcache.head;
     initsleeplock(&b->lock, "buffer");
@@ -63,6 +64,8 @@ bget(uint dev, uint blockno)
   acquire(&bcache.lock);
 
   // Is the block already cached?
+  //索引整个缓存块的循环链表,如果找到对应dev和blockno的块,然后置引用数+1
+  //这里也没有在更新了引用之后为块缓存重置链表中的位置；
   for(b = bcache.head.next; b != &bcache.head; b = b->next){
     if(b->dev == dev && b->blockno == blockno){
       b->refcnt++;
@@ -74,6 +77,8 @@ bget(uint dev, uint blockno)
 
   // Not cached.
   // Recycle the least recently used (LRU) unused buffer.
+  //如果索引完整个缓存块的循环链表没有找到相应dev和blockno的块,则从缓存块链表的最后一个位置取出一个空块并装载对应的dev和blockno
+  //这里其实是没有涉及到LRU的呀看起来,并不会为新载入的块缓存更新在循环链表中的位置
   for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
     if(b->refcnt == 0) {
       b->dev = dev;
@@ -122,11 +127,15 @@ brelse(struct buf *b)
   releasesleep(&b->lock);
 
   acquire(&bcache.lock);
+  //引用的数量-1
   b->refcnt--;
+  //如果该块缓存的引用=0,则释放；
   if (b->refcnt == 0) {
     // no one is waiting for it.
+    //把自己从循环链表中摘出
     b->next->prev = b->prev;
     b->prev->next = b->next;
+    //放到了循环链表的表首
     b->next = bcache.head.next;
     b->prev = &bcache.head;
     bcache.head.next->prev = b;
@@ -136,6 +145,7 @@ brelse(struct buf *b)
   release(&bcache.lock);
 }
 
+//引用数量+1
 void
 bpin(struct buf *b) {
   acquire(&bcache.lock);
@@ -143,6 +153,7 @@ bpin(struct buf *b) {
   release(&bcache.lock);
 }
 
+//引用数量-1
 void
 bunpin(struct buf *b) {
   acquire(&bcache.lock);
