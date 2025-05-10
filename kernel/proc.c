@@ -288,6 +288,14 @@ fork(void)
   }
   np->sz = p->sz;
 
+  //复制父进程的内存映射到子进程中;
+  for(int i=0;i<VMASZ;++i){
+    if(p->vma_[i].is_used==0) continue;
+    memmove(&np->vma_[i],&p->vma_[i],sizeof(struct vma));
+    filedup(np->vma_[i].file_);//增加引用
+  }
+  //由于munmap释放和懒分配，可能有部分是没有映射的  
+
   np->parent = p;
 
   // copy saved user registers.
@@ -350,6 +358,8 @@ exit(int status)
   if(p == initproc)
     panic("init exiting");
 
+  //可能需要删除vma的文件映射和内存;
+  
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
     if(p->ofile[fd]){
@@ -357,6 +367,19 @@ exit(int status)
       fileclose(f);
       p->ofile[fd] = 0;
     }
+  }
+
+  //
+  for(int i=0;i<VMASZ;++i){
+    if(p->vma_[i].is_used==0)continue;
+    //1.如果文件共享+可写,内容写回；
+    if((p->vma_[i].flags&MAP_SHARED)&&(p->vma_[i].prot&PROT_WRITE)){
+      filewrite(p->vma_[i].file_,p->vma_[i].addr,p->vma_[i].len);
+    }
+    //2.关闭文件；
+    fileclose(p->vma_[i].file_);
+    //3.vma清除
+    p->vma_[i].is_used=0;
   }
 
   begin_op();

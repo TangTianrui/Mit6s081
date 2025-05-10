@@ -572,6 +572,7 @@ sys_munmap(void){
   }
 
   uint64 start_addr=PGROUNDDOWN(vaddr),end_addr=PGROUNDUP(vaddr+length);
+  
   uvmunmap(p->pagetable,vaddr,(start_addr-end_addr)/PGSIZE,1);
 
 

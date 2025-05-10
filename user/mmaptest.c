@@ -275,14 +275,17 @@ fork_test(void)
   if((pid = fork()) < 0)
     err("fork");
   if (pid == 0) {
+    //printf("forked!\n");
     _v1(p1);
     munmap(p1, PGSIZE); // just the first page
+    //printf("munmaped!\n");
     exit(0); // tell the parent that the mapping looks OK.
   }
 
   int status = -1;
+  printf("waiting!\n");
   wait(&status);
-
+  printf("waited!\n");
   if(status != 0){
     printf("fork_test failed\n");
     exit(1);
