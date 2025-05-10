@@ -82,6 +82,19 @@ struct trapframe {
 
 enum procstate { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+#define VMASZ 16
+//自定义的虚拟内存地址数组,用于分配给进程
+struct vma{
+  int is_used;
+  uint64 addr;
+  int len;
+  int prot;
+  int flags;
+  int fd_;
+  struct file* file_;
+  int offset;
+};
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -103,4 +116,6 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  struct vma vma_[VMASZ];//定义的进程虚拟地址数组，大小16字节
 };

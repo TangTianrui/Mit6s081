@@ -9,6 +9,8 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+//struct vma;
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -33,6 +35,8 @@ void            fileinit(void);
 int             fileread(struct file*, uint64, int n);
 int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
+
+int             allocmmap(uint64,uint64);
 
 // fs.c
 void            fsinit(int);

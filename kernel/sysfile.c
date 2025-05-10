@@ -484,3 +484,120 @@ sys_pipe(void)
   }
   return 0;
 }
+
+//void *mmap(void *addr, int length, int prot, int flags,int fd, int offset);
+uint64
+sys_mmap(void){
+  uint64 err_ret=0xffffffffffffffff;
+
+  //1.创建临时变量用于接收用户空间传递的参数
+  uint64 uvaddr;
+  int length;
+  int prot;
+  int flags;
+  int fd;
+  struct file *file;
+  int offset;
+  if(argaddr(0,&uvaddr)<0||argint(1,&length)<0||argint(2,&prot)<0||
+  argint(3,&flags)<0||argfd(4,&fd,&file)<0||argint(5,&offset)<0){
+    return err_ret;
+  }
+  
+  //2.对传入参数的判断
+  struct proc *p=myproc();
+
+  //判断要开辟的用户空间虚拟地址是否超过限制：一般不会，因为虚拟地址空间非常大
+  if(p->sz+length>MAXVA-2*PGSIZE) return err_ret;
+
+  //判断权限是否正确
+  //如果文件没有读权限,且想要映射读权限,则失败；
+  if((prot&PROT_READ)&&file->readable==0) return err_ret;
+  //如果文件想要映射写权限,需要判断是否为shared内存,如果是则需要文件具有写权限,如果是private内存,则不需要写权限,反正是自用;
+  if((flags&MAP_SHARED)&&(prot&PROT_WRITE)&&file->writable==0) return err_ret;
+  
+  
+  //3.对数据进行处理;
+  for(int i=0;i<VMASZ;++i){
+    if(p->vma_[i].is_used==1)continue;
+    p->vma_[i].addr=p->sz;//当前的用户地址空间栈指针指向的就是新开辟的起点,长度length;
+    p->vma_[i].is_used=1;
+    p->vma_[i].fd_=fd;
+    p->vma_[i].file_=file;
+    p->vma_[i].flags=flags;
+    p->vma_[i].len=length;
+    p->vma_[i].offset=offset;
+    p->vma_[i].prot=prot;
+    
+    p->sz+=length;//更新栈指针;
+    filedup(file);//增加文件的引用计数
+    return p->vma_[i].addr;
+  }
+  //没有找到合适的vma数组;
+  return err_ret;
+}
+
+//void munmap(void *addr,int length);
+uint64
+sys_munmap(void){
+  //1.获取参数
+  //2.找到vma
+  //3.判断释放的参数正确性
+  //4.在当前vma中往前或者往后释放或者全部释放；
+  //4.1对释放的虚拟地址寻址,清除pte映射以及物理内存；
+  //4.2如果有修改则写回file
+  //4.3如果vma对应虚拟地址全部释放则重置vma；
+  //5.维护p->sz;
+
+  //1.
+  uint64 vaddr;
+  int length;
+  if(argaddr(0,&vaddr)<0||argint(1,&length)<0) return -1;
+
+  //2.同时在判断中做了范围的检查，保证得到的vma一定包含要unmap的虚拟地址
+  struct proc *p=myproc();
+  int i=0;
+  for(;i<VMASZ;++i){
+    if(p->vma_[i].is_used==0)continue;
+    if(p->vma_[i].addr<=vaddr&&vaddr+length<=p->vma_[i].addr+p->vma_[i].len){
+      break;//找到所在vma
+    }
+  }
+  if(i==VMASZ) return -1;//没有找到正确的vma
+
+  //3.先写回，后清除分配了物理内存的虚拟地址；
+  //1)都感觉有些问题，这里的是file是写入而不是覆盖；
+  //2)uvmunmap,对于没有分配物理内存的虚拟地址的处理
+  if((p->vma_[i].flags&MAP_SHARED)&&(p->vma_[i].prot&PROT_WRITE)&&(p->vma_[i].file_->writable)){
+    filewrite(p->vma_[i].file_,vaddr,length);
+  }
+
+  uint64 start_addr=PGROUNDDOWN(vaddr),end_addr=PGROUNDUP(vaddr+length);
+  uvmunmap(p->pagetable,vaddr,(start_addr-end_addr)/PGSIZE,1);
+
+
+  //int pgs=(end_addr-start_addr)/PGSIZE;
+  if(start_addr==p->vma_[i].addr){
+    if(end_addr-start_addr==p->vma_[i].len){
+      //1)清除整个;
+      fileclose(p->vma_[i].file_);
+      p->vma_[i].is_used=0;
+      p->vma_[i].addr=0;
+      p->vma_[i].len=0;
+    }
+    else{
+      //2)清除前半部分;
+      p->vma_[i].len=p->vma_[i].addr+p->vma_[i].len-end_addr;
+      p->vma_[i].addr=end_addr;
+    }
+  }
+  else if(end_addr==p->vma_[i].addr+p->vma_[i].len){
+    //3)清除后半部分
+    p->vma_[i].len=start_addr-p->vma_[i].addr;
+  }
+  else{
+    //4)中间打孔了,违背题意,报错；
+    panic("munmap error mid");
+  }
+
+  return 0;
+}

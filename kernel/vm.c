@@ -6,6 +6,9 @@
 #include "defs.h"
 #include "fs.h"
 
+//#include "proc.h"
+//#include "file.h"
+//#include "fcntl.h"
 /*
  * the kernel's page table.
  */

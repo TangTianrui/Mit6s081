@@ -67,7 +67,20 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  }else if(r_scause()==13||r_scause()==15){
+    //缺页异常
+  #ifdef LAB_MMAP
+    int evaddr=r_stval();
+    if(evaddr>p->sz){
+      //访问地址超过分配的虚拟地址空间的范围
+      p->killed=1;
+    }
+    else{
+      //懒分配->分配物理内存+memmove复制内容+创建用户页表映射；
+      if(allocmmap(evaddr,r_scause())<0) p->killed=1;
+    }
+  #endif
+  }else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;

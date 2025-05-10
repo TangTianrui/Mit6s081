@@ -8,6 +8,10 @@ struct file {
   uint off;          // FD_INODE
   short major;       // FD_DEVICE
 };
+//FD_NONE	空的/无效的文件描述符
+//FD_PIPE	管道（pipe）类型的文件
+//FD_INODE	普通文件（由 inode 表示）
+//FD_DEVICE	设备文件，如 /dev/console 等
 
 #define major(dev)  ((dev) >> 16 & 0xFFFF)
 #define minor(dev)  ((dev) & 0xFFFF)

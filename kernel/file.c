@@ -13,7 +13,12 @@
 #include "stat.h"
 #include "proc.h"
 
+#include "fcntl.h"
+
+//设备驱动，为每个设备提供输入和输出函数的指针
 struct devsw devsw[NDEV];
+
+//文件表，通过自旋锁维护所有的文件数组
 struct {
   struct spinlock lock;
   struct file file[NFILE];
@@ -26,6 +31,7 @@ fileinit(void)
 }
 
 // Allocate a file structure.
+//分配文件容器，从文件数组中取出空容器,进行返回
 struct file*
 filealloc(void)
 {
@@ -44,6 +50,7 @@ filealloc(void)
 }
 
 // Increment ref count for file f.
+//增加文件的引用数量
 struct file*
 filedup(struct file *f)
 {
@@ -84,6 +91,7 @@ fileclose(struct file *f)
 
 // Get metadata about file f.
 // addr is a user virtual address, pointing to a struct stat.
+//把file中状态存入传入的addr中；
 int
 filestat(struct file *f, uint64 addr)
 {
@@ -180,3 +188,54 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
+//用于处理mmap的懒分配
+int allocmmap(uint64 evaddr,uint64 scause){
+  struct proc *p=myproc();
+  //struct vma evma;
+  int i=0;
+  //1.找到vaddr对应的vma;
+  for(;i<VMASZ;++i){
+    if(p->vma_[i].is_used==0)continue;
+    if(p->vma_[i].addr<=evaddr&&evaddr<p->vma_[i].addr+p->vma_[i].len){
+      break;
+      //找到对应的evma
+    }
+  }
+  if(i==VMASZ) return -1;
+
+  //2.根据vma的起点addr和该vaddr的偏移，确定要从文件中复制到物理内存中的数据；
+  char *mem=kalloc();
+  if(mem==0) return -1;
+  memset(mem,0,PGSIZE);
+
+  int pages=(evaddr-p->vma_[i].addr)/PGSIZE;
+  //借鉴file.c/fileread()->f->type==FD_INODE
+  struct file *f=p->vma_[i].file_;
+  int r=0;
+
+  ilock(f->ip);
+  r=readi(f->ip,0,(uint64)mem,p->vma_[i].offset+PGSIZE*pages,PGSIZE);
+  iunlock(f->ip);
+  if(r==0){
+    kfree(mem);
+    return -1;
+  } 
+
+  //对是否可以写等属性进行判断,判断缺页异常号和操作的eva是否匹配
+  if(scause==13&&f->readable==0) return -1;
+  if(scause==15&&f->writable==0) return -1;
+
+  //3.根据vma的属性创建用户页表条目；pte
+  int prot=PTE_U;
+  if(p->vma_[i].prot & PROT_READ) prot|=PTE_R;
+  if(p->vma_[i].prot & PROT_WRITE) prot|=PTE_W;
+  if(p->vma_[i].prot & PROT_EXEC) prot|=PTE_X;
+
+  if(mappages(p->pagetable,p->vma_[i].addr+PGSIZE*pages,PGSIZE,(uint64)mem,prot)!=0){
+    kfree(mem);
+    return -1;
+  }
+  
+  return 0;
+
+}

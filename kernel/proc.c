@@ -6,6 +6,8 @@
 #include "proc.h"
 #include "defs.h"
 
+#include "fcntl.h"
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -131,9 +133,13 @@ found:
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
+  //进程的返回位置->forkret函数
   p->context.ra = (uint64)forkret;
+  //设置进程的内核栈指针为新分配的一页栈顶;
   p->context.sp = p->kstack + PGSIZE;
 
+  //初始化vma
+  memset(p->vma_,0,sizeof(p->vma_));
   return p;
 }
 
