@@ -377,16 +377,18 @@ iunlockput(struct inode *ip)
 static uint
 bmap(struct inode *ip, uint bn)
 {
-  uint addr, *a;
-  struct buf *bp;
-
+  uint addr, *a,*a_sec;
+  struct buf *bp,*bp_sec;
+  
+  //如果在直接寻址的块范围内
   if(bn < NDIRECT){
     if((addr = ip->addrs[bn]) == 0)
       ip->addrs[bn] = addr = balloc(ip->dev);
     return addr;
   }
-  bn -= NDIRECT;
+  bn -= NDIRECT;//0-10
 
+  //更改bn到一级扩展中进行寻址;
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0)
@@ -400,7 +402,40 @@ bmap(struct inode *ip, uint bn)
     brelse(bp);
     return addr;
   }
-
+  bn-=NINDIRECT;
+  
+  //增加二级块编号的ind
+  if(bn<NSECDIRECT){
+    //如果一级没有分配则分配
+    if((addr=ip->addrs[NDIRECT+1]==0))
+      ip->addrs[NDIRECT+1] = addr =balloc(ip->dev);
+    //获取一级块数组
+    bp=bread(ip->dev,addr);
+    a=(uint*)bp->data;
+    for(int i=0;i<NINDIRECT;++i){
+      if(bn<NINDIRECT){
+        //找到二级块数组对应的地址
+        if((addr=a[i])==0){
+          a[i]=addr=balloc(ip->dev);
+          log_write(bp);
+        }
+        brelse(bp);
+        //取出并获取数据数组
+        bp_sec=bread(ip->dev,addr);
+        a_sec=(uint*)bp_sec->data;
+        //根据bn进行块数组的索引
+        if((addr=a_sec[bn])==0){
+          a_sec[bn]=addr=balloc(ip->dev);
+          log_write(bp_sec);
+        }
+        brelse(bp_sec);
+        return addr;
+      }
+      else bn-=NINDIRECT;
+    }
+    //正常不会运行到这个地方
+    brelse(bp);//防止没有找到对应的块导致不释放块缓存
+  }
   panic("bmap: out of range");
 }
 
@@ -410,9 +445,10 @@ void
 itrunc(struct inode *ip)
 {
   int i, j;
-  struct buf *bp;
-  uint *a;
+  struct buf *bp,*bp_sec;
+  uint *a,*a_sec;
 
+  //释放直接索引的块
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
       bfree(ip->dev, ip->addrs[i]);
@@ -420,18 +456,46 @@ itrunc(struct inode *ip)
     }
   }
 
+  //释放1级索引的块
   if(ip->addrs[NDIRECT]){
     bp = bread(ip->dev, ip->addrs[NDIRECT]);
     a = (uint*)bp->data;
     for(j = 0; j < NINDIRECT; j++){
+      //释放1级索引对应的块
       if(a[j])
         bfree(ip->dev, a[j]);
     }
     brelse(bp);
+    //释放1级索引;
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
   }
 
+  //增加2级索引的块的释放
+  if(ip->addrs[NDIRECT+1]){
+    //对1级索引进行遍历再对2级进行遍历
+    bp=bread(ip->dev,ip->addrs[NDIRECT+1]);
+    a=(uint*)bp->data;
+    for(int i=0;i<NINDIRECT;++i){
+      if(a[i]){
+        //说明存在二级索引
+        bp_sec=bread(ip->dev,a[i]);
+        a_sec=(uint*)bp_sec->data;
+        for(int j=0;j<NINDIRECT;++j){
+          if(a_sec[j]){
+            //说明存在二级块
+            bfree(ip->dev,a_sec[j]);
+          }
+        }
+        brelse(bp_sec);
+        bfree(ip->dev,a[i]);
+      }
+    }
+    brelse(bp);
+    bfree(ip->dev,ip->addrs[NDIRECT+1]);
+    ip->addrs[NDIRECT+1]=0;
+  }
+  
   ip->size = 0;
   iupdate(ip);
 }

@@ -14,6 +14,7 @@ struct file {
 #define	mkdev(m,n)  ((uint)((m)<<16| (n)))
 
 // in-memory copy of an inode
+//内存中的磁盘inode副本；用于描述访问的文件信息;
 struct inode {
   uint dev;           // Device number
   uint inum;          // Inode number
@@ -26,7 +27,9 @@ struct inode {
   short minor;
   short nlink;
   uint size;
-  uint addrs[NDIRECT+1];
+  //文件的数据段：12KB+(1KB/4bytes)*1KB=256+12=268KB=268blocks
+  //如果做成两级：12KB+256*256*1KB=65536+12=65548KB=65548blocks//11KB+256KB+256*256KB=65803KB
+  uint addrs[NDIRECT+2];
 };
 
 // map major device number to device functions.

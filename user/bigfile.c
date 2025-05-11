@@ -23,6 +23,7 @@ main()
     if(cc <= 0)
       break;
     blocks++;
+    //printf("%d\n",blocks);
     if (blocks % 100 == 0)
       printf(".");
   }
