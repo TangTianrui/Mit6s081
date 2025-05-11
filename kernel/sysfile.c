@@ -286,6 +286,7 @@ create(char *path, short type, short major, short minor)
 uint64
 sys_open(void)
 {
+  //修改函数,增加对链接文件的打开逻辑
   char path[MAXPATH];
   int fd, omode;
   struct file *f;
@@ -320,6 +321,44 @@ sys_open(void)
     iunlockput(ip);
     end_op();
     return -1;
+  }
+
+  //创建对SYMLINK类型的open逻辑
+  if(ip->type==T_SYMLINK&&(omode&O_NOFOLLOW)==0){
+    //链接类型并且没有设置nofollow标志,则说明要递归对文件进行索引;
+    //如果设置了nofollow则用后面的逻辑对文件进行打开即可
+    char target[MAXPATH];
+    int i=0;
+    
+    //递归读取path并将最后返回的fd返回；
+    for(;i<MAX_SYMLINK_DEPTH;++i){
+      if(readi(ip,0,(uint64)target,0,MAXPATH)<MAXPATH){
+        //读错误；
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
+      iunlockput(ip);
+      ip=namei(target);//得到链接的ip
+      if(ip==0){
+        end_op();
+        return -1;
+      }
+      ilock(ip);//对新索引到的文件上锁
+      if(ip->type==T_SYMLINK){
+        //通过链接找到的文件仍是链接，继续递归查找文件；
+        continue;
+      }
+      //运行到这个地方说明不再是链接，可以根据当前的ip复用后续的open代码对文件进行读取并返回了
+      break;
+    }
+    //如果遍历长度超过限制，则链接成环或长度超过限制
+    if(i==MAX_SYMLINK_DEPTH){
+      printf("symlink looped! or exceed the max_symlink_depth!\n");
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
   }
 
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
@@ -482,5 +521,39 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+//int symlink(char *target, char *path);
+uint64
+sys_symlink(void){
+  //1.获取传入参数；
+  char target[MAXPATH],path[MAXPATH];
+  struct inode *ip;
+  if(argstr(0,target,MAXPATH)<0||argstr(1,path,MAXPATH)<0){
+    return -1;
+  }
+
+  //2.在path位置创建一个symlink类型的文件
+  begin_op();
+  //事务起点；
+  ip=create(path,T_SYMLINK,0,0);
+  if(ip==0){
+    //创建失败
+    end_op();
+    return -1;
+  }
+
+  //3.根据地址写入创建的文件中作为创建的链接；
+  if(writei(ip,0,(uint64)target,0,MAXPATH)<MAXPATH){
+    //软链接的写入错误
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+  //成功
+  iunlockput(ip);  
+  end_op();
+  //事务终点；
   return 0;
 }
