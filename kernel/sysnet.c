@@ -115,8 +115,11 @@ sockread(struct sock *si, uint64 addr, int n)
   int len;
 
   acquire(&si->lock);
+  // 如果接受缓冲区为空并且socket没有断开，那么阻塞等待；
   while (mbufq_empty(&si->rxq) && !pr->killed) {
     sleep(&si->rxq, &si->lock);
+    // 这里的机制是将进程挂起，等待接收缓冲区的数据到达并唤醒。
+    // 为了避免竞争和死锁，锁交给sleep去释放，wake时再重新获得锁的控制权
   }
   if (pr->killed) {
     release(&si->lock);

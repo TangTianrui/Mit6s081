@@ -17,6 +17,7 @@ static uint8 broadcast_mac[ETHADDR_LEN] = { 0xFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF }
 
 // Strips data from the start of the buffer and returns a pointer to it.
 // Returns 0 if less than the full requested length is available.
+// 队首后移，取出队列前len的内容；比如取出头部
 char *
 mbufpull(struct mbuf *m, unsigned int len)
 {
@@ -29,6 +30,7 @@ mbufpull(struct mbuf *m, unsigned int len)
 }
 
 // Prepends data to the beginning of the buffer and returns a pointer to it.
+// 队首前移，返回队首指针，进行新值的赋值；比如添加头部
 char *
 mbufpush(struct mbuf *m, unsigned int len)
 {
@@ -40,6 +42,7 @@ mbufpush(struct mbuf *m, unsigned int len)
 }
 
 // Appends data to the end of the buffer and returns a pointer to it.
+// 队尾增加长度，返回原来的队尾；提供从队尾进行数据的插值
 char *
 mbufput(struct mbuf *m, unsigned int len)
 {
@@ -52,6 +55,7 @@ mbufput(struct mbuf *m, unsigned int len)
 
 // Strips data from the end of the buffer and returns a pointer to it.
 // Returns 0 if less than the full requested length is available.
+// 队尾前移，返回现在的队尾；将队尾后部的内容剥离，比如剥离crc；
 char *
 mbuftrim(struct mbuf *m, unsigned int len)
 {
@@ -73,6 +77,8 @@ mbufalloc(unsigned int headroom)
   if (m == 0)
     return 0;
   m->next = 0;
+  // 不是等于某个固定协议的包头大小，而是预留给未来协议头的空间。
+  // 后面进行逐层封装添加头部时直接在队首添加就可以，不涉及内存的复制
   m->head = (char *)m->buf + headroom;
   m->len = 0;
   memset(m->buf, 0, sizeof(m->buf));
@@ -87,6 +93,7 @@ mbuffree(struct mbuf *m)
 }
 
 // Pushes an mbuf to the end of the queue.
+// 链表尾部添加数据
 void
 mbufq_pushtail(struct mbufq *q, struct mbuf *m)
 {
@@ -100,6 +107,7 @@ mbufq_pushtail(struct mbufq *q, struct mbuf *m)
 }
 
 // Pops an mbuf from the start of the queue.
+// pop链表首个buf
 struct mbuf *
 mbufq_pophead(struct mbufq *q)
 {
@@ -126,6 +134,7 @@ mbufq_init(struct mbufq *q)
 
 // This code is lifted from FreeBSD's ping.c, and is copyright by the Regents
 // of the University of California.
+// 计算得到一个2bytes的校验和
 static unsigned short
 in_cksum(const unsigned char *addr, int len)
 {
